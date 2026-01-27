@@ -24,7 +24,7 @@ import { SchemaView } from './SchemaView';
 import { getCsvSchema, getCsvData, suggestChart, planChart } from '../api/charts';
 import { ChartArea } from './ChartArea';
 import { ChartConfig, ChartPlan } from '../types';
-import { processDataForChart } from '../utils/dataProcessing';
+import { processDataForChart, getPreviewData } from '../utils/dataProcessing';
 
 export const ChartsWorkspace = () => {
     const [csvId, setCsvId] = useState<string | null>(null);
@@ -46,20 +46,10 @@ export const ChartsWorkspace = () => {
             const schemaRes = await getCsvSchema(id);
             setSchema(schemaRes.schema);
 
-            // Fetch Data for preview (simple CSV parsing for now)
+            // Fetch Data for preview (using danfo.js)
             const csvText = await getCsvData(id);
-            const rows = csvText.split('\n').filter(r => r.trim() !== '');
-            if (rows.length > 0) {
-                const headers = rows[0].split(',');
-                const data = rows.slice(1, 6).map(row => {
-                    const values = row.split(',');
-                    return headers.reduce((acc, header, index) => {
-                        acc[header.trim()] = values[index]?.trim();
-                        return acc;
-                    }, {} as Record<string, any>);
-                });
-                setPreviewData(data);
-            }
+            const data = await getPreviewData(csvText);
+            setPreviewData(data);
 
         } catch (error) {
             console.error("Error fetching data/schema", error);

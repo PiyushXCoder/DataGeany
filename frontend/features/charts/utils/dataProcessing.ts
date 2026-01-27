@@ -86,3 +86,11 @@ export const processDataForChart = async (
         data: chartData,
     };
 };
+
+export const getPreviewData = async (csvText: string, limit: number = 5): Promise<any[]> => {
+    const blob = new Blob([csvText], { type: 'text/csv' });
+    const file = new File([blob], "temp.csv", { type: "text/csv" });
+    const df = await dfd.readCSV(file);
+    const previewDf = df.head(limit);
+    return dfd.toJSON(previewDf) as any[];
+};
