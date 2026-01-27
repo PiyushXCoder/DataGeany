@@ -21,7 +21,10 @@ import { Input } from "@/components/ui/input"
 import { CsvUploader } from './CsvUploader';
 import { DataPreview } from './DataPreview';
 import { SchemaView } from './SchemaView';
-import { getCsvSchema, getCsvData, suggestChart } from '../api/charts';
+import { getCsvSchema, getCsvData, suggestChart, planChart } from '../api/charts';
+import { ChartArea } from './ChartArea';
+import { ChartConfig, ChartPlan } from '../types';
+import { processDataForChart } from '../utils/dataProcessing';
 
 export const ChartsWorkspace = () => {
     const [csvId, setCsvId] = useState<string | null>(null);
@@ -31,6 +34,8 @@ export const ChartsWorkspace = () => {
     const [userQuery, setUserQuery] = useState('');
     const [isSuggesting, setIsSuggesting] = useState(false);
     const [suggestedChartTypes, setSuggestedChartTypes] = useState<string[]>([]);
+    const [charts, setCharts] = useState<ChartConfig[]>([]);
+    const [isAddingChart, setIsAddingChart] = useState(false);
 
     const handleUploadSuccess = async (id: string) => {
         setCsvId(id);
@@ -109,6 +114,56 @@ export const ChartsWorkspace = () => {
         }
     };
 
+    const handleAddChart = async () => {
+        if (!csvId || !selectedChartType || !userQuery) return;
+        setIsAddingChart(true);
+        try {
+            // 1. Get Plan
+            let accumulatedJson = '';
+            await planChart({
+                chart_type: selectedChartType.toLowerCase().includes('bar') ? 'bar' : selectedChartType,
+                columns: schema,
+                user_query: userQuery
+            }, (chunk) => {
+                accumulatedJson += chunk;
+            });
+
+            // Parse Plan
+            let plan: ChartPlan | null = null;
+            try {
+                // The backend uses SSE for plan too
+                const firstBrace = accumulatedJson.indexOf('{');
+                const lastBrace = accumulatedJson.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1) {
+                    const jsonStr = accumulatedJson.substring(firstBrace, lastBrace + 1);
+                    plan = JSON.parse(jsonStr);
+                }
+            } catch (e) {
+                console.error("Failed to parse plan", e);
+            }
+
+            if (plan && plan.type === 'bar') {
+                // 2. Fetch Full Data
+                const csvText = await getCsvData(csvId);
+
+                // 3. Process Data
+                const newChart = await processDataForChart(
+                    csvText,
+                    plan,
+                    Date.now().toString(),
+                    `${userQuery} (${selectedChartType})`
+                );
+
+                setCharts(prev => [...prev, newChart]);
+            }
+
+        } catch (error) {
+            console.error("Failed to add chart", error);
+        } finally {
+            setIsAddingChart(false);
+        }
+    };
+
     return (
         <div className="w-full max-w-5xl mx-auto p-4 space-y-6">
             <Card>
@@ -178,15 +233,18 @@ export const ChartsWorkspace = () => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <Button disabled={!selectedChartType}>Add Chart</Button>
+                                    <Button
+                                        onClick={handleAddChart}
+                                        disabled={!selectedChartType || isAddingChart}
+                                    >
+                                        {isAddingChart ? "Adding..." : "Add Chart"}
+                                    </Button>
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
 
-                    <div className="min-h-[400px] border rounded-lg p-8 flex items-center justify-center bg-gray-50 text-gray-400">
-                        Chart Area
-                    </div>
+                    <ChartArea charts={charts} />
                 </>
             )}
         </div>
