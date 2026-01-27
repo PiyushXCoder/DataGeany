@@ -1,6 +1,8 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from backend.domains.items import router as items_router
+# from backend.domains.items import router as items_router
+from backend.domains.charts import router as charts_router
 
 
 def create_app():
@@ -9,8 +11,15 @@ def create_app():
         description="API for DataGeany application",
         version="0.0.1",
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    app.include_router(items_router.router, prefix="/items", tags=["items"])
+    app.include_router(charts_router.router, prefix="/charts", tags=["charts"])
 
     @app.get("/")
     async def root():

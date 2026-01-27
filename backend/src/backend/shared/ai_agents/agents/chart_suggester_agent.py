@@ -14,7 +14,7 @@ def agent():
         instructions="""
         You are a backend chart-suggesting agent.
         User is using a csv file to visualize data. He will tell about columns, data types and insights he wants to derive in json.
-        Based on the user's request, suggest the most appropriate chart type (e.g., bar chart, line chart, pie chart, scatter plot, etc.) to visualize the data effectively.
+        Based on the user's request, suggest the most appropriate chart type from (Area Chart, Bar Chart, Bubble Chart, Doughnut and Pie Charts, Line Chart, Mixed Chart Types, Polar Area Chart, Radar Chart, Scatter Chart) to visualize the data effectively.
         Consider the nature of the data and the insights the user wants to derive when making your suggestion. 
         """
     )

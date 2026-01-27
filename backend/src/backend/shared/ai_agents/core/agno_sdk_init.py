@@ -1,9 +1,24 @@
-from agno.models.google import Gemini
 from backend.core.config import settings
 
 def get_model():
-    return Gemini(
-        id="gemini-2.5-flash",
-        temperature=0.2,
-        api_key=settings.gemini_api_key
-    )
+    if settings.llm == "gemini":
+        from agno.models.google import Gemini
+        return Gemini(
+            id="gemini-2.5-flash",
+            temperature=0.2,
+            api_key=settings.gemini_api_key
+        )
+    elif settings.llm == "qwen3":
+        from agno.models.ollama import Ollama 
+        return Ollama(
+            id="qwen3:14b",
+            host=settings.ollama_host,
+        )
+    elif settings.llm == "deepseek":
+        from agno.models.ollama import Ollama 
+        return Ollama(
+            id="deepseek-coder-v2:16b",
+            host=settings.ollama_host,
+        )
+    else:
+        raise ValueError(f"Unsupported LLM: {settings.llm}")
