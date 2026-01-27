@@ -48,34 +48,6 @@ class ChartService:
             
         return "string"
 
-    def get_csv_content(self, csv_id: str) -> List[Dict[str, Any]]:
-        file_path = os.path.join(settings.upload_dir, f"{csv_id}.csv")
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"CSV with ID {csv_id} not found")
-        
-        data = []
-        with open(file_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # Basic type conversion for the content to be useful
-                converted_row = {}
-                for k, v in row.items():
-                    if v is None:
-                        converted_row[k] = None
-                        continue
-                    
-                    type_ = self._infer_type(v)
-                    if type_ == "int":
-                        converted_row[k] = int(v)
-                    elif type_ == "float":
-                        converted_row[k] = float(v)
-                    elif type_ == "bool":
-                        converted_row[k] = v.lower() in ("true", "yes")
-                    else:
-                        converted_row[k] = v
-                data.append(converted_row)
-        return data
-
     def get_csv_schema(self, csv_id: str) -> Dict[str, str]:
         file_path = os.path.join(settings.upload_dir, f"{csv_id}.csv")
         if not os.path.exists(file_path):
