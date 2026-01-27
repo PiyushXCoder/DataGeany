@@ -171,13 +171,13 @@ export const ChartsWorkspace = () => {
                         <CardContent>
                             <Accordion type="single" collapsible defaultValue="preview" className="w-full">
                                 <AccordionItem value="preview">
-                                    <AccordionTrigger>Preview Accordion</AccordionTrigger>
+                                    <AccordionTrigger>Preview</AccordionTrigger>
                                     <AccordionContent>
                                         <DataPreview data={previewData} />
                                     </AccordionContent>
                                 </AccordionItem>
                                 <AccordionItem value="schema">
-                                    <AccordionTrigger>Schema Accordion</AccordionTrigger>
+                                    <AccordionTrigger>Schema</AccordionTrigger>
                                     <AccordionContent>
                                         <SchemaView schema={schema} />
                                     </AccordionContent>
