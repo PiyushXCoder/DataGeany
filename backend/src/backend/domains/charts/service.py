@@ -4,6 +4,7 @@ import csv
 from typing import List, Dict, Any
 from fastapi import UploadFile
 from backend.core.config import settings
+from backend.shared.database import CSVStorage
 
 os.makedirs(settings.upload_dir, exist_ok=True)
 
@@ -12,9 +13,25 @@ class ChartService:
         csv_id = str(uuid.uuid4())
         file_path = os.path.join(settings.upload_dir, f"{csv_id}.csv")
         
+        # Save CSV file
         with open(file_path, "wb") as f:
             content = file.file.read()
             f.write(content)
+        
+        # Get CSV schema
+        schema = self.get_csv_schema(csv_id)
+        
+        # Create MySQL table and insert data
+        try:
+            table_name = CSVStorage.create_table(csv_id, schema)
+            rows_inserted = CSVStorage.insert_csv_data(csv_id, file_path, schema)
+            print(f"✓ CSV {csv_id}: Table '{table_name}' created with {rows_inserted} rows")
+        except Exception as e:
+            # Clean up the uploaded file if MySQL storage fails
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            print(f"✗ Error storing CSV {csv_id} in MySQL: {e}")
+            raise  # Re-raise exception to fail the upload
             
         return csv_id
 
