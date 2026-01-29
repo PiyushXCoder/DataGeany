@@ -42,6 +42,16 @@ async def get_csv_data(csv_id: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"CSV data not found: {str(e)}")
 
+@router.get("/csv/{csv_id}/head")
+async def get_csv_head(csv_id: str):
+    """Get the first 5 rows of CSV data from the database table."""
+    try:
+        from ...shared.database import CSVStorage
+        data = CSVStorage.get_table_data(csv_id, limit=5)
+        return {"csvId": csv_id, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"CSV data not found: {str(e)}")
+
 @router.get("/csv/{csv_id}/schema")
 async def get_csv_schema(csv_id: str):
     try:
