@@ -53,16 +53,20 @@ export const suggestChart = async (
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
+    let currentEvent = '';
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
-        // Basic SSE parsing
+        // Parse SSE with event filtering
         const lines = chunk.split('\n');
         for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            if (line.startsWith('event: ')) {
+                currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
                 const data = line.slice(6);
-                if (data && data !== '[DONE]') {
+                // Only process data from 'content' events
+                if (currentEvent === 'content' && data && data !== '[DONE]') {
                     onChunk(data);
                 }
             }
@@ -90,16 +94,20 @@ export const planChart = async (
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
+    let currentEvent = '';
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
-        // Basic SSE parsing
+        // Parse SSE with event filtering
         const lines = chunk.split('\n');
         for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            if (line.startsWith('event: ')) {
+                currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
                 const data = line.slice(6);
-                if (data && data !== '[DONE]') {
+                // Only process data from 'content' events
+                if (currentEvent === 'content' && data && data !== '[DONE]') {
                     onChunk(data);
                 }
             }
