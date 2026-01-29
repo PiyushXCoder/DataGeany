@@ -95,7 +95,6 @@ class CSVStorage:
                 
                 # Build CREATE TABLE statement
                 columns = ["id INT AUTO_INCREMENT PRIMARY KEY"]
-                columns.append("csv_id VARCHAR(36)")
                 
                 for col_name, col_type in schema.items():
                     safe_col_name = CSVStorage._sanitize_column_name(col_name)
@@ -149,8 +148,8 @@ class CSVStorage:
                     sanitized_columns = [CSVStorage._sanitize_column_name(col) for col in original_columns]
                     
                     # Prepare INSERT statement
-                    placeholders = ', '.join(['%s'] * (len(sanitized_columns) + 1))  # +1 for csv_id
-                    columns_str = ', '.join([f"`{col}`" for col in ['csv_id'] + sanitized_columns])
+                    placeholders = ', '.join(['%s'] * (len(sanitized_columns)))  
+                    columns_str = ', '.join([f"`{col}`" for col in sanitized_columns])
                     insert_statement = f"INSERT INTO `{table_name}` ({columns_str}) VALUES ({placeholders})"
                     
                     # Batch insert
@@ -160,7 +159,7 @@ class CSVStorage:
                     
                     for row in reader:
                         # Convert row values based on schema types
-                        values = [csv_id]  # Add csv_id as first value
+                        values = []  # Add csv_id as first value
                         for col in original_columns:
                             value = row.get(col, None)
                             
