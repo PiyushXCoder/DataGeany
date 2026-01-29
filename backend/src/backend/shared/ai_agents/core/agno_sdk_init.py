@@ -22,3 +22,14 @@ def get_model():
         )
     else:
         raise ValueError(f"Unsupported LLM: {settings.llm}")
+
+
+def get_reasoning_model():
+    if settings.llm == "deepseek":
+        from agno.models.ollama import Ollama 
+        return Ollama(
+            id="deepseek-r1:1.5b",
+            host=settings.ollama_host,
+        )
+    else:
+        raise ValueError(f"Unsupported LLM: {settings.llm}")
