@@ -21,10 +21,10 @@ import { Input } from "@/components/ui/input"
 import { CsvUploader } from './CsvUploader';
 import { DataPreview } from './DataPreview';
 import { SchemaView } from './SchemaView';
-import { getCsvSchema, getCsvData, suggestChart, planChart } from '../api/charts';
+import { getCsvSchema, getCsvData, getCsvHead, suggestChart, planChart } from '../api/charts';
 import { ChartArea } from './ChartArea';
 import { ChartConfig, ChartPlan } from '../types';
-import { processDataForChart, getPreviewData } from '../utils/dataProcessing';
+import { processDataForChart } from '../utils/dataProcessing';
 
 export const ChartsWorkspace = () => {
     const [csvId, setCsvId] = useState<string | null>(null);
@@ -46,10 +46,9 @@ export const ChartsWorkspace = () => {
             const schemaRes = await getCsvSchema(id);
             setSchema(schemaRes.schema);
 
-            // Fetch Data for preview (using danfo.js)
-            const csvText = await getCsvData(id);
-            const data = await getPreviewData(csvText);
-            setPreviewData(data);
+            // Fetch preview data from backend
+            const previewDataRes = await getCsvHead(id);
+            setPreviewData(previewDataRes);
 
         } catch (error) {
             console.error("Error fetching data/schema", error);

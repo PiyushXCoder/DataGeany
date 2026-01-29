@@ -25,6 +25,12 @@ export const getCsvData = async (csvId: string): Promise<string> => {
     return response.data;
 }
 
+// Get CSV head/preview data from backend
+export const getCsvHead = async (csvId: string): Promise<Record<string, any>[]> => {
+    const response = await api.get(`/charts/csv/${csvId}/head`);
+    return response.data.data; // The backend returns { csvId, data }
+}
+
 // SSE usually handled in component via EventSource or fetch, but keeping a reference here
 export const getSuggestChartsUrl = () => `${api.defaults.baseURL}/charts/suggest`;
 
