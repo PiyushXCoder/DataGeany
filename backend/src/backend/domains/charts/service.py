@@ -18,8 +18,8 @@ class ChartService:
             content = file.file.read()
             f.write(content)
         
-        # Get CSV schema
-        schema = self.get_csv_schema(csv_id)
+        # Infer CSV schema from file
+        schema = self._infer_csv_schema(file_path)
         
         # Create MySQL table and insert data
         try:
@@ -40,13 +40,8 @@ class ChartService:
             
         return csv_id
 
-    def get_csv_path(self, csv_id: str) -> str:
-        file_path = os.path.join(settings.upload_dir, f"{csv_id}.csv")
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"CSV with ID {csv_id} not found")
-        return file_path
-
     def _infer_type(self, value: str) -> str:
+        """Infer data type from a string value."""
         if not value:
             return "string"
         
@@ -70,11 +65,16 @@ class ChartService:
             
         return "string"
 
-    def get_csv_schema(self, csv_id: str) -> Dict[str, str]:
-        file_path = os.path.join(settings.upload_dir, f"{csv_id}.csv")
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"CSV with ID {csv_id} not found")
+    def _infer_csv_schema(self, file_path: str) -> Dict[str, str]:
+        """
+        Infer schema from CSV file by reading and analyzing sample rows.
+        
+        Args:
+            file_path: Path to the CSV file
             
+        Returns:
+            Dictionary mapping column names to types
+        """
         schema = {}
         with open(file_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -91,10 +91,6 @@ class ChartService:
                 return {}
 
             for col in reader.fieldnames:
-                # Infer type based on sample values
-                # If ANY value is string, it's string.
-                # If ALL are int/float available and consistent, use that.
-                
                 col_type = None 
                 
                 for row in sample_rows:
@@ -132,3 +128,21 @@ class ChartService:
                 schema[col] = col_type if col_type else "string"
                 
         return schema
+
+    def get_csv_schema(self, csv_id: str) -> Dict[str, str]:
+        """
+        Get CSV schema from the database table.
+        
+        Args:
+            csv_id: UUID of the CSV file
+            
+        Returns:
+            Dictionary mapping column names to types
+            
+        Raises:
+            ValueError: If table doesn't exist
+        """
+        try:
+            return CSVStorage.get_table_schema(csv_id)
+        except Exception as e:
+            raise ValueError(f"Could not retrieve schema for CSV {csv_id}: {str(e)}")

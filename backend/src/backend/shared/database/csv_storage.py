@@ -238,6 +238,65 @@ class CSVStorage:
                 cursor.close()
     
     @staticmethod
+    def get_table_schema(csv_id: str) -> Dict[str, str]:
+        """
+        Retrieve schema from MySQL table by inspecting column types.
+        
+        Args:
+            csv_id: UUID of the CSV file
+            
+        Returns:
+            Dictionary mapping column names to types (int, float, bool, string)
+            
+        Raises:
+            Error: If query fails or table doesn't exist
+        """
+        table_name = CSVStorage._sanitize_table_name(csv_id)
+        
+        db = get_db()
+        with db as conn:
+            cursor = conn.cursor(dictionary=True)
+            
+            try:
+                # Query information schema to get column information
+                query = """
+                    SELECT COLUMN_NAME, DATA_TYPE 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                    AND COLUMN_NAME NOT IN ('id', 'csv_id')
+                    ORDER BY ORDINAL_POSITION
+                """
+                cursor.execute(query, (conn.database, table_name))
+                columns = cursor.fetchall()
+                
+                if not columns:
+                    raise ValueError(f"Table `{table_name}` not found or has no data columns")
+                
+                # Map MySQL types back to our schema types
+                schema = {}
+                mysql_to_schema_type = {
+                    'int': 'int',
+                    'tinyint': 'bool',
+                    'double': 'float',
+                    'text': 'string',
+                    'varchar': 'string',
+                }
+                
+                for col in columns:
+                    col_name = col['COLUMN_NAME']
+                    mysql_type = col['DATA_TYPE'].lower()
+                    schema_type = mysql_to_schema_type.get(mysql_type, 'string')
+                    schema[col_name] = schema_type
+                
+                return schema
+                
+            except Error as e:
+                print(f"✗ Error retrieving schema from `{table_name}`: {e}")
+                raise
+            finally:
+                cursor.close()
+    
+    @staticmethod
     def get_table_data(csv_id: str, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
         Retrieve data from MySQL table.

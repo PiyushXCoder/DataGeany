@@ -34,11 +34,13 @@ async def upload_csv(file: UploadFile = File(...)):
 
 @router.get("/csv/{csv_id}")
 async def get_csv_data(csv_id: str):
+    """Get CSV data from the database table."""
     try:
-        file_path = service.get_csv_path(csv_id)
-        return FileResponse(file_path, media_type="text/csv", filename=f"{csv_id}.csv")
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="CSV not found")
+        from ...shared.database import CSVStorage
+        data = CSVStorage.get_table_data(csv_id, limit=10000)
+        return {"csvId": csv_id, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"CSV data not found: {str(e)}")
 
 @router.get("/csv/{csv_id}/schema")
 async def get_csv_schema(csv_id: str):
