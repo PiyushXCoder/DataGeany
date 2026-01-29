@@ -16,17 +16,24 @@ def generate_sse_events(stream: Iterator[RunOutputEvent | RunOutput]):
         
         # --- Special Handling for Reasoning & Content ---
         
-        # 1. Reasoning
-        if hasattr(chunk, "reasoning_content") and chunk.reasoning_content:
-            yield f"event: reasoning\ndata: {chunk.reasoning_content}\n\n"
+        # 1. Reasoning Steps (the actual reasoning is here, not in reasoning_content)
+        if hasattr(chunk, "reasoning_steps") and chunk.reasoning_steps:
+            # reasoning_steps is a list of ReasoningStep objects
+            # Each ReasoningStep has a 'result' field with the reasoning content
+            reasoning_texts = []
+            for step in chunk.reasoning_steps:
+                if hasattr(step, 'result') and step.result:
+                    reasoning_texts.append(step.result)
+            
+            if reasoning_texts:
+                combined_reasoning = "\n".join(reasoning_texts)
+                yield f"event: reasoning\ndata: {json.dumps({'content': combined_reasoning})}\n\n"
         
-        # 2. Reasoning Delta
-        if event_type == RunEvent.reasoning_content_delta:
-                if hasattr(chunk, "reasoning_content") and chunk.reasoning_content:
-                    yield f"event: reasoning\ndata: {chunk.reasoning_content}\n\n"
-                continue # Handled
-
-        # 3. Content (RunOutput or RunContent)
+        # 2. Reasoning Content (fallback, might be used in some models)
+        elif hasattr(chunk, "reasoning_content") and chunk.reasoning_content:
+            yield f"event: reasoning\ndata: {json.dumps({'content': chunk.reasoning_content})}\n\n"
+        
+        # 3. Regular Content (RunOutput or RunContent)
         if hasattr(chunk, "content") and chunk.content is not None:
             # RunOutput often validates to ResponseModel
             if isinstance(chunk, RunOutput) or event_type == RunEvent.run_content:
@@ -34,7 +41,7 @@ def generate_sse_events(stream: Iterator[RunOutputEvent | RunOutput]):
                         yield f"event: content\ndata: {chunk.content.model_dump_json()}\n\n"
                         continue
                     elif isinstance(chunk.content, str):
-                        yield f"event: content\ndata: {chunk.content}\n\n"
+                        yield f"event: content\ndata: {json.dumps({'content': chunk.content})}\n\n"
                         continue
                     else:
                         try:
@@ -42,24 +49,12 @@ def generate_sse_events(stream: Iterator[RunOutputEvent | RunOutput]):
                             continue
                         except TypeError:
                             pass
-
+        
         # --- Generic Handling for ALL other events ---
         # Emit everything else as an event with its name (converted to snake_case if needed)
         if event_type:
-                # Avoid duplicate content from RunCompleted (it duplicates RunContent or the stream)
-                if event_type == "RunCompleted" or event_type == RunEvent.run_completed:
-                    pass # We still emit the event metadata below, but might want to handle it carefully. 
-                         # Actually, the previous logic skipped it entirely to avoid content duplication.
-                         # Let's emit the metadata but be careful not to confuse the client with 'content' field if we already sent it.
-                         # However, for generic handling, we usually want the metadata.
-                         # The prompt "all events are not yet handled" implies valid metadata events should be sent.
-                         # But let's stick to the previous successfully verified logic:
-                         # The previous logic skipped RunCompleted to avoid *duplicate content*.
-                         # But `RunCompleted` event itself is useful (metrics etc).
-                         # Let's emit it as 'runcompleted' event.
-
                 safe_event_name = str(event_type).replace("RunEvent.", "").lower()
-                
+        
                 # Serialize the whole chunk metadata
                 try:
                     if hasattr(chunk, "model_dump_json"):
@@ -68,7 +63,7 @@ def generate_sse_events(stream: Iterator[RunOutputEvent | RunOutput]):
                         data = json.dumps(vars(chunk), default=str)
                     else:
                         data = str(chunk)
-                    
+        
                     yield f"event: {safe_event_name}\ndata: {data}\n\n"
                 except Exception as e:
                     # In a production util, maybe log this.

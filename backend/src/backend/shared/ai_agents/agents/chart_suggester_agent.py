@@ -6,8 +6,11 @@ class ResponseModel(BaseModel):
     chart_types: list[str] = Field(default=[], description="The suggested chart type to visualize the data effectively.")
 
 def agent():
+    from agno.models.ollama import Ollama
     return Agent(
         name="ChartSuggesterAgent",
+        reasoning_model=Ollama(id="deepseek-r1:1.5b"),
+        reasoning=True,
         model=get_model(),
         tools=[],
         output_schema=ResponseModel,
