@@ -1,45 +1,40 @@
 """
-Database connection manager using singleton pattern with connection pooling.
+Database connection manager using SQLAlchemy with session management.
 """
 import threading
-from typing import Optional, Union
-import mysql.connector
-from mysql.connector import pooling, Error
-from mysql.connector.pooling import MySQLConnectionPool, PooledMySQLConnection
-from mysql.connector.connection import MySQLConnection
+from typing import Optional
+from sqlalchemy import create_engine, Engine
+from sqlalchemy.orm import sessionmaker, Session, scoped_session
+from sqlalchemy.pool import QueuePool
 from backend.core.config import settings
-
-
-# Type alias for connections (can be either pooled or direct)
-ConnectionType = Union[PooledMySQLConnection, MySQLConnection]
 
 
 class DatabaseManager:
     """
-    Singleton class to manage MySQL database connections using connection pooling.
+    Singleton class to manage SQLAlchemy database connections and sessions.
     
     Usage:
-        # Method 1: Direct connection management
+        # Method 1: Direct session management
         db = DatabaseManager.get_instance()
-        conn = db.get_connection()
+        session = db.get_session()
         try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users")
-            results = cursor.fetchall()
+            result = session.execute(text("SELECT * FROM users"))
+            rows = result.fetchall()
         finally:
-            db.release_connection(conn)
+            session.close()
         
         # Method 2: Using context manager (recommended)
         db = DatabaseManager.get_instance()
-        with db as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users")
-            results = cursor.fetchall()
+        with db as session:
+            result = session.execute(text("SELECT * FROM users"))
+            rows = result.fetchall()
     """
     
     _instance: Optional['DatabaseManager'] = None
     _lock: threading.Lock = threading.Lock()
-    _pool: Optional[MySQLConnectionPool] = None
+    _engine: Optional[Engine] = None
+    _session_factory: Optional[sessionmaker] = None
+    _scoped_session: Optional[scoped_session] = None
     
     def __new__(cls):
         """
@@ -50,28 +45,38 @@ class DatabaseManager:
                 # Double-check locking pattern
                 if cls._instance is None:
                     cls._instance = super(DatabaseManager, cls).__new__(cls)
-                    cls._instance._initialize_pool()
+                    cls._instance._initialize_engine()
         return cls._instance
     
-    def _initialize_pool(self) -> None:
+    def _initialize_engine(self) -> None:
         """
-        Initialize the MySQL connection pool with settings from config.
+        Initialize the SQLAlchemy engine and session factory.
         """
         try:
-            self._pool = pooling.MySQLConnectionPool(
-                pool_name=settings.mysql_pool_name,
+            # Create engine with connection pooling
+            self._engine = create_engine(
+                settings.database_url,
+                poolclass=QueuePool,
                 pool_size=settings.mysql_pool_size,
-                host=settings.mysql_host,
-                port=settings.mysql_port,
-                user=settings.mysql_user,
-                password=settings.mysql_password,
-                database=settings.mysql_database,
-                autocommit=False,
-                pool_reset_session=True
+                pool_pre_ping=True,  # Verify connections before using
+                pool_recycle=3600,   # Recycle connections after 1 hour
+                echo=False,          # Set to True for SQL debugging
             )
-            print(f"✓ MySQL connection pool '{settings.mysql_pool_name}' initialized with {settings.mysql_pool_size} connections")
-        except Error as e:
-            print(f"✗ Error initializing MySQL connection pool: {e}")
+            
+            # Create session factory
+            self._session_factory = sessionmaker(
+                bind=self._engine,
+                autocommit=False,
+                autoflush=False,
+            )
+            
+            # Create scoped session for thread-local sessions
+            self._scoped_session = scoped_session(self._session_factory)
+            
+            print(f"✓ SQLAlchemy engine initialized with pool size {settings.mysql_pool_size}")
+            
+        except Exception as e:
+            print(f"✗ Error initializing SQLAlchemy engine: {e}")
             raise
     
     @classmethod
@@ -84,64 +89,103 @@ class DatabaseManager:
         """
         return cls()
     
-    def get_connection(self) -> PooledMySQLConnection:
+    @property
+    def engine(self) -> Engine:
         """
-        Get a connection from the pool.
+        Get the SQLAlchemy engine.
         
         Returns:
-            PooledMySQLConnection: A pooled connection from the pool
+            Engine: The SQLAlchemy engine
+        """
+        if self._engine is None:
+            raise RuntimeError("Database engine not initialized")
+        return self._engine
+    
+    def get_session(self) -> Session:
+        """
+        Get a new database session.
+        
+        Returns:
+            Session: A new SQLAlchemy session
             
         Raises:
-            Error: If unable to get connection from pool
+            RuntimeError: If session factory not initialized
         """
-        if self._pool is None:
-            raise RuntimeError("Connection pool not initialized")
+        if self._session_factory is None:
+            raise RuntimeError("Session factory not initialized")
         
-        try:
-            connection = self._pool.get_connection()
-            return connection
-        except Error as e:
-            print(f"✗ Error getting connection from pool: {e}")
-            raise
+        return self._session_factory()
     
-    def release_connection(self, connection: ConnectionType) -> None:
+    def get_scoped_session(self) -> Session:
         """
-        Release a connection back to the pool.
+        Get a thread-local scoped session.
+        
+        Returns:
+            Session: A thread-local SQLAlchemy session
+            
+        Raises:
+            RuntimeError: If scoped session not initialized
+        """
+        if self._scoped_session is None:
+            raise RuntimeError("Scoped session not initialized")
+        
+        return self._scoped_session()
+    
+    def close_session(self, session: Session) -> None:
+        """
+        Close a database session.
         
         Args:
-            connection: The connection to release
+            session: The session to close
         """
-        if connection and connection.is_connected():
-            connection.close()  # This returns it to the pool
+        if session:
+            session.close()
+    
+    def remove_scoped_session(self) -> None:
+        """
+        Remove the current thread's scoped session.
+        """
+        if self._scoped_session:
+            self._scoped_session.remove()
     
     def close_all(self) -> None:
         """
-        Close all connections in the pool.
+        Dispose of the engine and all connections.
         Should be called during application shutdown.
         """
-        if self._pool:
-            # Connection pools don't have a direct close_all method
-            # Connections are closed when they're no longer referenced
-            print(f"✓ Closing all connections in pool '{settings.mysql_pool_name}'")
-            self._pool = None
+        if self._scoped_session:
+            self._scoped_session.remove()
+        
+        if self._engine:
+            self._engine.dispose()
+            print(f"✓ SQLAlchemy engine disposed")
     
-    def __enter__(self) -> PooledMySQLConnection:
+    def __enter__(self) -> Session:
         """
-        Context manager entry - get a connection from the pool.
+        Context manager entry - get a new session.
         
         Returns:
-            PooledMySQLConnection: A pooled connection from the pool
+            Session: A new SQLAlchemy session
         """
-        self._current_connection = self.get_connection()
-        return self._current_connection
+        self._current_session = self.get_session()
+        return self._current_session
     
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """
-        Context manager exit - release the connection back to the pool.
+        Context manager exit - close the session.
+        Rollback on exception, commit otherwise.
         """
-        if hasattr(self, '_current_connection'):
-            self.release_connection(self._current_connection)
-            delattr(self, '_current_connection')
+        if hasattr(self, '_current_session'):
+            try:
+                if exc_type is not None:
+                    # Exception occurred, rollback
+                    self._current_session.rollback()
+                else:
+                    # No exception, commit
+                    self._current_session.commit()
+            finally:
+                self._current_session.close()
+                delattr(self, '_current_session')
 
 
 # Convenience function to get database instance

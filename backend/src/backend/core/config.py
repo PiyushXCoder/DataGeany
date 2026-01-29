@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     mysql_pool_name: str = Field(default="myapp_pool", alias="MYSQL_POOL_NAME")
     mysql_pool_size: int = Field(default=5, alias="MYSQL_POOL_SIZE")
 
+    @property
+    def database_url(self) -> str:
+        """Construct SQLAlchemy database URL with PyMySQL driver."""
+        return f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+
     class Config:
         env_file = ".env"
 

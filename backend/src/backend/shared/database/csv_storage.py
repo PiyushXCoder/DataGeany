@@ -1,16 +1,17 @@
 """
-CSV to MySQL table storage functionality.
+CSV to MySQL table storage functionality using SQLAlchemy.
 Handles creation of MySQL tables from CSV schemas and data insertion.
 """
 import csv
 import re
 from typing import Dict, List, Any
-from mysql.connector import Error
+from sqlalchemy import text, MetaData, Table, Column, Integer, Float, Boolean, Text, String, inspect
+from sqlalchemy.exc import SQLAlchemyError
 from .manager import get_db
 
 
 class CSVStorage:
-    """Handles CSV to MySQL table conversion and storage."""
+    """Handles CSV to MySQL table conversion and storage using SQLAlchemy."""
     
     @staticmethod
     def _sanitize_table_name(csv_id: str) -> str:
@@ -50,23 +51,23 @@ class CSVStorage:
         return sanitized.lower()
     
     @staticmethod
-    def _map_csv_type_to_mysql(csv_type: str) -> str:
+    def _map_csv_type_to_sqlalchemy(csv_type: str):
         """
-        Map CSV schema type to MySQL column type.
+        Map CSV schema type to SQLAlchemy column type.
         
         Args:
             csv_type: Type from CSV schema (int, float, bool, string)
             
         Returns:
-            MySQL column type
+            SQLAlchemy type class
         """
         type_mapping = {
-            'int': 'INT',
-            'float': 'DOUBLE',
-            'bool': 'BOOLEAN',
-            'string': 'TEXT'
+            'int': Integer,
+            'float': Float,
+            'bool': Boolean,
+            'string': Text
         }
-        return type_mapping.get(csv_type, 'TEXT')
+        return type_mapping.get(csv_type, Text)
     
     @staticmethod
     def register_csv(csv_id: str) -> None:
@@ -77,31 +78,30 @@ class CSVStorage:
             csv_id: UUID of the CSV file
             
         Raises:
-            Error: If insertion fails
+            SQLAlchemyError: If insertion fails
         """
         db = get_db()
-        with db as conn:
-            cursor = conn.cursor()
-            
+        with db as session:
             try:
                 # Insert CSV ID into csv table
-                insert_statement = "INSERT INTO csv (id) VALUES (%s)"
-                cursor.execute(insert_statement, (csv_id,))
-                conn.commit()
-                
+                # We use text() here assuming the 'csv' table already exists
+                # from initial migrations/setup
+                session.execute(
+                    text("INSERT INTO csv (id) VALUES (:id)"),
+                    {"id": csv_id}
+                )
+                # Session commits automatically on successful exit of context manager
                 print(f"✓ Registered CSV with ID: {csv_id}")
                 
-            except Error as e:
-                conn.rollback()
+            except SQLAlchemyError as e:
+                # DatabaseManager context manager handles rollback on exception
                 print(f"✗ Error registering CSV {csv_id}: {e}")
                 raise
-            finally:
-                cursor.close()
     
     @staticmethod
     def create_table(csv_id: str, schema: Dict[str, str]) -> str:
         """
-        Create a MySQL table from CSV schema.
+        Create a MySQL table from CSV schema using SQLAlchemy.
         
         Args:
             csv_id: UUID of the CSV file
@@ -111,41 +111,39 @@ class CSVStorage:
             Table name created
             
         Raises:
-            Error: If table creation fails
+            SQLAlchemyError: If table creation fails
         """
         table_name = CSVStorage._sanitize_table_name(csv_id)
-        
         db = get_db()
-        with db as conn:
-            cursor = conn.cursor()
+        
+        try:
+            metadata = MetaData()
             
-            try:
-                # Drop table if it exists
-                cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
-                
-                # Build CREATE TABLE statement
-                columns = ["id INT AUTO_INCREMENT PRIMARY KEY"]
-                columns.append("csv_id VARCHAR(36)")
-                
-                for col_name, col_type in schema.items():
-                    safe_col_name = CSVStorage._sanitize_column_name(col_name)
-                    mysql_type = CSVStorage._map_csv_type_to_mysql(col_type)
-                    columns.append(f"`{safe_col_name}` {mysql_type}")
-                
-                create_statement = f"CREATE TABLE `{table_name}` ({', '.join(columns)})"
-                
-                cursor.execute(create_statement)
-                conn.commit()
-                
-                print(f"✓ Created table `{table_name}` with {len(schema)} columns")
-                return table_name
-                
-            except Error as e:
-                conn.rollback()
-                print(f"✗ Error creating table `{table_name}`: {e}")
-                raise
-            finally:
-                cursor.close()
+            # Define columns
+            columns = [
+                Column('id', Integer, primary_key=True, autoincrement=True),
+                Column('csv_id', String(36))
+            ]
+            
+            for col_name, col_type in schema.items():
+                safe_col_name = CSVStorage._sanitize_column_name(col_name)
+                sa_type = CSVStorage._map_csv_type_to_sqlalchemy(col_type)
+                columns.append(Column(safe_col_name, sa_type))
+            
+            # Define table object
+            table = Table(table_name, metadata, *columns)
+            
+            # Drop table if exists and create new one
+            # We use the engine directly for DDL operations
+            table.drop(db.engine, checkfirst=True)
+            table.create(db.engine)
+            
+            print(f"✓ Created table `{table_name}` with {len(schema)} columns")
+            return table_name
+            
+        except SQLAlchemyError as e:
+            print(f"✗ Error creating table `{table_name}`: {e}")
+            raise
     
     @staticmethod
     def insert_csv_data(csv_id: str, file_path: str, schema: Dict[str, str]) -> int:
@@ -161,81 +159,74 @@ class CSVStorage:
             Number of rows inserted
             
         Raises:
-            Error: If data insertion fails
+            SQLAlchemyError: If data insertion fails
         """
         table_name = CSVStorage._sanitize_table_name(csv_id)
-        
         db = get_db()
-        with db as conn:
-            cursor = conn.cursor()
-            
+        
+        # Reflect the table to get the Table object
+        metadata = MetaData()
+        table = Table(table_name, metadata, autoload_with=db.engine)
+        
+        rows_inserted = 0
+        
+        with db as session:
             try:
                 # Read CSV file
                 with open(file_path, 'r', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
                     
-                    # Get sanitized column names
                     original_columns = list(schema.keys())
-                    sanitized_columns = [CSVStorage._sanitize_column_name(col) for col in original_columns]
-                    
-                    # Prepare INSERT statement
-                    placeholders = ', '.join(['%s'] * (len(sanitized_columns) + 1))  # +1 for csv_id
-                    columns_str = ', '.join([f"`{col}`" for col in ['csv_id'] + sanitized_columns])
-                    insert_statement = f"INSERT INTO `{table_name}` ({columns_str}) VALUES ({placeholders})"
-                    
-                    # Batch insert
-                    rows_inserted = 0
                     batch = []
                     batch_size = 1000
                     
                     for row in reader:
-                        # Convert row values based on schema types
-                        values = [csv_id]  # Add csv_id as first value
+                        # Prepare row dictionary with sanitized column names
+                        row_data = {'csv_id': csv_id}
+                        
                         for col in original_columns:
+                            safe_col = CSVStorage._sanitize_column_name(col)
                             value = row.get(col, None)
                             
                             # Convert based on type
                             if value is None or value == '':
-                                values.append(None)
+                                row_data[safe_col] = None
                             elif schema[col] == 'int':
                                 try:
-                                    values.append(int(value))
+                                    row_data[safe_col] = int(value)
                                 except (ValueError, TypeError):
-                                    values.append(None)
+                                    row_data[safe_col] = None
                             elif schema[col] == 'float':
                                 try:
-                                    values.append(float(value))
+                                    row_data[safe_col] = float(value)
                                 except (ValueError, TypeError):
-                                    values.append(None)
+                                    row_data[safe_col] = None
                             elif schema[col] == 'bool':
-                                values.append(value.lower() in ('true', 'yes', '1'))
+                                row_data[safe_col] = value.lower() in ('true', 'yes', '1')
                             else:
-                                values.append(str(value))
+                                row_data[safe_col] = str(value)
                         
-                        batch.append(tuple(values))
+                        batch.append(row_data)
                         
                         # Execute batch when it reaches batch_size
                         if len(batch) >= batch_size:
-                            cursor.executemany(insert_statement, batch)
+                            session.execute(table.insert(), batch)
                             rows_inserted += len(batch)
                             batch = []
                     
                     # Insert remaining rows
                     if batch:
-                        cursor.executemany(insert_statement, batch)
+                        session.execute(table.insert(), batch)
                         rows_inserted += len(batch)
                     
-                    conn.commit()
+                    # Commit happens on exit
                     print(f"✓ Inserted {rows_inserted} rows into `{table_name}`")
-                    
                     return rows_inserted
                     
-            except Error as e:
-                conn.rollback()
+            except SQLAlchemyError as e:
+                # Automatic rollback on exception
                 print(f"✗ Error inserting data into `{table_name}`: {e}")
                 raise
-            finally:
-                cursor.close()
     
     @staticmethod
     def get_table_schema(csv_id: str) -> Dict[str, str]:
@@ -249,52 +240,49 @@ class CSVStorage:
             Dictionary mapping column names to types (int, float, bool, string)
             
         Raises:
-            Error: If query fails or table doesn't exist
+            SQLAlchemyError: If query fails or table doesn't exist
         """
         table_name = CSVStorage._sanitize_table_name(csv_id)
-        
         db = get_db()
-        with db as conn:
-            cursor = conn.cursor(dictionary=True)
+        
+        try:
+            inspector = inspect(db.engine)
+            if not inspector.has_table(table_name):
+                raise ValueError(f"Table `{table_name}` not found")
             
-            try:
-                # Query information schema to get column information
-                query = """
-                    SELECT COLUMN_NAME, DATA_TYPE 
-                    FROM INFORMATION_SCHEMA.COLUMNS 
-                    WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-                    AND COLUMN_NAME NOT IN ('id', 'csv_id')
-                    ORDER BY ORDINAL_POSITION
-                """
-                cursor.execute(query, (conn.database, table_name))
-                columns = cursor.fetchall()
+            columns = inspector.get_columns(table_name)
+            
+            # Map SQLAlchemy types back to our schema types
+            schema = {}
+            
+            for col in columns:
+                col_name = col['name']
+                if col_name in ('id', 'csv_id'):
+                    continue
                 
-                if not columns:
-                    raise ValueError(f"Table `{table_name}` not found or has no data columns")
+                type_name = str(col['type']).lower()
                 
-                # Map MySQL types back to our schema types
-                schema = {}
-                mysql_to_schema_type = {
-                    'int': 'int',
-                    'tinyint': 'bool',
-                    'double': 'float',
-                    'text': 'string',
-                    'varchar': 'string',
-                }
-                
-                for col in columns:
-                    col_name = col['COLUMN_NAME']
-                    mysql_type = col['DATA_TYPE'].lower()
-                    schema_type = mysql_to_schema_type.get(mysql_type, 'string')
-                    schema[col_name] = schema_type
-                
-                return schema
-                
-            except Error as e:
-                print(f"✗ Error retrieving schema from `{table_name}`: {e}")
-                raise
-            finally:
-                cursor.close()
+                if 'int' in type_name or 'integer' in type_name:
+                    schema_type = 'int'
+                elif 'bool' in type_name or 'tinyint' in type_name:
+                    # MySQL often treats boolean as tinyint(1)
+                    schema_type = 'bool'
+                elif 'float' in type_name or 'double' in type_name or 'numeric' in type_name:
+                    schema_type = 'float'
+                else:
+                    schema_type = 'string'
+                    
+                schema[col_name] = schema_type
+            
+            if not schema:
+                # This could happen if only id and csv_id exist
+                 pass 
+                 
+            return schema
+            
+        except SQLAlchemyError as e:
+            print(f"✗ Error retrieving schema from `{table_name}`: {e}")
+            raise
     
     @staticmethod
     def get_table_data(csv_id: str, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
@@ -310,23 +298,23 @@ class CSVStorage:
             List of dictionaries representing rows
             
         Raises:
-            Error: If query fails
+            SQLAlchemyError: If query fails
         """
         table_name = CSVStorage._sanitize_table_name(csv_id)
-        
         db = get_db()
-        with db as conn:
-            cursor = conn.cursor(dictionary=True)
-            
+        
+        with db as session:
             try:
-                query = f"SELECT * FROM `{table_name}` LIMIT %s OFFSET %s"
-                cursor.execute(query, (limit, offset))
-                rows = cursor.fetchall()
+                # Use quoted table name to prevent SQL injection (though we sanitize it)
+                # In SQLAlchemy Core, we should usually use a Table object
+                # But for simple SELECT * with limit/offset, text is efficient
+                query = text(f"SELECT * FROM `{table_name}` LIMIT :limit OFFSET :offset")
+                result = session.execute(query, {"limit": limit, "offset": offset})
                 
+                # Convert to list of dicts
+                rows = [dict(row._mapping) for row in result]
                 return rows
                 
-            except Error as e:
+            except SQLAlchemyError as e:
                 print(f"✗ Error retrieving data from `{table_name}`: {e}")
                 raise
-            finally:
-                cursor.close()
