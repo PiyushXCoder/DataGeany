@@ -23,6 +23,10 @@ class ChartService:
         
         # Create MySQL table and insert data
         try:
+            # Register CSV in the csv table
+            CSVStorage.register_csv(csv_id)
+            
+            # Create table and insert data
             table_name = CSVStorage.create_table(csv_id, schema)
             rows_inserted = CSVStorage.insert_csv_data(csv_id, file_path, schema)
             print(f"✓ CSV {csv_id}: Table '{table_name}' created with {rows_inserted} rows")  

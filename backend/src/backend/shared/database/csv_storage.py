@@ -69,6 +69,36 @@ class CSVStorage:
         return type_mapping.get(csv_type, 'TEXT')
     
     @staticmethod
+    def register_csv(csv_id: str) -> None:
+        """
+        Register a CSV upload by inserting its ID into the csv table.
+        
+        Args:
+            csv_id: UUID of the CSV file
+            
+        Raises:
+            Error: If insertion fails
+        """
+        db = get_db()
+        with db as conn:
+            cursor = conn.cursor()
+            
+            try:
+                # Insert CSV ID into csv table
+                insert_statement = "INSERT INTO csv (id) VALUES (%s)"
+                cursor.execute(insert_statement, (csv_id,))
+                conn.commit()
+                
+                print(f"✓ Registered CSV with ID: {csv_id}")
+                
+            except Error as e:
+                conn.rollback()
+                print(f"✗ Error registering CSV {csv_id}: {e}")
+                raise
+            finally:
+                cursor.close()
+    
+    @staticmethod
     def create_table(csv_id: str, schema: Dict[str, str]) -> str:
         """
         Create a MySQL table from CSV schema.
