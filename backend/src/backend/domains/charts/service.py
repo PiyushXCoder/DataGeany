@@ -26,6 +26,12 @@ class ChartService:
             table_name = CSVStorage.create_table(csv_id, schema)
             rows_inserted = CSVStorage.insert_csv_data(csv_id, file_path, schema)
             print(f"✓ CSV {csv_id}: Table '{table_name}' created with {rows_inserted} rows")
+            
+            # Delete CSV file after successful MySQL storage
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"✓ CSV file deleted: {file_path}")
+                
         except Exception as e:
             # Clean up the uploaded file if MySQL storage fails
             if os.path.exists(file_path):
