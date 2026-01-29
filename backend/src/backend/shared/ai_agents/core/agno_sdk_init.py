@@ -17,7 +17,7 @@ def get_model():
     elif settings.llm == "deepseek":
         from agno.models.ollama import Ollama 
         return Ollama(
-            id="deepseek-coder-v2:16b",
+            id="llama3.1:8b",
             host=settings.ollama_host,
         )
     else:

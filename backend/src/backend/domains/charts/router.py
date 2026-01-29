@@ -1,21 +1,21 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException
-from fastapi.responses import StreamingResponse, FileResponse
-from typing import List, Dict, Any
-from .schemas import ChartSuggestionRequest, PlanChartRequest
+from fastapi.responses import StreamingResponse
+
+from .schemas import PlanChartRequest
 from ...shared.ai_agents.agents.chart_suggester_agent import agent as suggest_agent
-from ...shared.ai_agents.agents.bar_chart_agent import agent as bar_chart_agent
+from ...shared.ai_agents.agents.bar_chart_agent import BarChartPlan
 from ...shared.ai_agents.utils import generate_sse_events
 from .service import ChartService
 
 router = APIRouter()
 service = ChartService()
 
-@router.post("/suggest")
-async def suggest_charts(request: ChartSuggestionRequest):
+@router.get("/csv/{csv_id}/suggest")
+async def suggest_charts(csv_id: str, user_query: str):
     chart_agent = suggest_agent()
     
     stream = chart_agent.run(
-        f"Columns: {request.columns}\nUser Query: {request.user_query}", 
+        f"Table Name: {csv_id}\nUser Query: {user_query}", 
         stream=True
     )
 
@@ -60,13 +60,14 @@ async def get_csv_schema(csv_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="CSV not found")
 
-@router.post("/plan_chart")
-async def plan_chart(request: PlanChartRequest):
+@router.post("/generate")
+async def generate_chart(request: PlanChartRequest):
     if request.chart_type == "bar":
-        agent = bar_chart_agent()
+        agent = chart_planner_agent()
         stream = agent.run(
             f"Columns: {request.columns}\nUser Query: {request.user_query}",
-            stream=True
+            stream=True,
+            output_schema=BarChartPlan,
         )
         return StreamingResponse(
             generate_sse_events(stream),
