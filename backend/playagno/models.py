@@ -43,7 +43,7 @@ class VegaLiteChart(BaseModel):
 class VegaLiteResponse(BaseModel):
     table: str
     charts: List[VegaLiteChart]
-    summary: str
+    summary: Optional[str] = None
 
 
 # -------- Routing --------
