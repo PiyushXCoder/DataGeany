@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     llm: str = Field(default="gemini", alias="LLM")
     ollama_host: str = Field(default="http://localhost:11434", alias="OLLAMA_HOST")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    openai_api_base_url: str = Field(default="", alias="OPENAI_API_BASE_URL")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     upload_dir: str = Field(default="uploads", alias="UPLOAD_DIR")
     
     # MySQL Database Configuration
